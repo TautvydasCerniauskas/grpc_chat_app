@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"log"
+	"net"
 	"os"
 	"sync"
+
+	"google.golang.org/grpc"
 
 	"github.com/greenavenue/chat_app_docker/proto"
 	glog "google.golang.org/grpc/grpclog"
@@ -41,7 +45,7 @@ func (s *Server) CreateStream(pconn *proto.Connect, stream proto.Broadcast_Creat
 
 func (s *Server) Broadcast_Message(ctx context.Context, msg *proto.Message) (*proto.Close, error) {
 	wait := sync.WaitGroup{}
-	close := make(chan int)
+	done := make(chan int)
 
 	for _, conn := range s.Connection {
 		wait.Add(1)
@@ -61,8 +65,29 @@ func (s *Server) Broadcast_Message(ctx context.Context, msg *proto.Message) (*pr
 			}
 		}(msg, conn)
 	}
+
+	go func() {
+		wait.Wait()
+		close(done)
+	}()
+
+	<-done
+	return &proto.Close{}, nil
 }
 
 func main() {
+	var connections []*Connection
 
+	server := &Server{connections}
+
+	grpcServer := grpc.NewServer()
+	listener, err := net.Listen("tcp", ":8080")
+	if err != nil {
+		log.Fatalf("Error creating the server %v", err)
+	}
+
+	grpcLog.Info("Starting server at port 8080")
+
+	proto.RegisterBroadcastServer(grpcServer, server)
+	grpcServer.Serve(listener)
 }
